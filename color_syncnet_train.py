@@ -149,6 +149,8 @@ def train(device, model, train_data_loader, test_data_loader, optimizer,
     while global_epoch < nepochs:
         running_loss = 0.
         prog_bar = tqdm(enumerate(train_data_loader))
+        # 标识有超过target_loss的loss
+        is_above_target_loss = False
         for step, (x, mel, y) in prog_bar:
             model.train()
             optimizer.zero_grad()
@@ -178,10 +180,14 @@ def train(device, model, train_data_loader, test_data_loader, optimizer,
 
             avg_loss = running_loss / (step + 1)
             prog_bar.set_description('Loss: {}'.format(avg_loss))
-            if args.target_loss and avg_loss <= args.target_loss:
-                save_checkpoint(model, optimizer, global_step, checkpoint_dir, global_epoch)
-                print(f"target_loss {args.target_loss} reached, trainning stopped.")
-                return
+            # 有任何loss不达标
+            if args.target_loss and avg_loss > args.target_loss:
+                is_above_target_loss = True
+
+        if not is_above_target_loss:
+            save_checkpoint(model, optimizer, global_step, checkpoint_dir, global_epoch)
+            print(f"target_loss {args.target_loss} reached, trainning stopped.")
+            return
 
         global_epoch += 1
 
