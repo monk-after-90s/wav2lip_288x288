@@ -1,18 +1,15 @@
 from os.path import dirname, join, basename, isfile
 from tqdm import tqdm
-
+import signal
 from models import SyncNet_color as SyncNet
 import audio
-
 import torch
 from torch import nn
 from torch import optim
 import torch.backends.cudnn as cudnn
 from torch.utils import data as data_utils
 import numpy as np
-
 from glob import glob
-
 import os, random, cv2, argparse
 from hparams import hparams, get_image_list
 
@@ -143,6 +140,16 @@ def cosine_loss(a, v, y):
 
 def train(device, model, train_data_loader, test_data_loader, optimizer,
           checkpoint_dir=None, checkpoint_interval=None, nepochs=None):
+    # 即将退出标识
+    to_exit = False
+
+    def change_exit_flag():
+        nonlocal to_exit
+        to_exit = True
+
+    # 捕捉kill信号
+    signal.signal(signal.SIGTERM, change_exit_flag)
+
     global global_step, global_epoch
     resumed_step = global_step
 
@@ -171,8 +178,10 @@ def train(device, model, train_data_loader, test_data_loader, optimizer,
             # cur_session_steps = global_step - resumed_step
             running_loss += loss.item()
 
-            if global_step == 1 or global_step % checkpoint_interval == 0:
+            if global_step == 1 or global_step % checkpoint_interval == 0 or to_exit:
                 save_checkpoint(model, optimizer, global_step, checkpoint_dir, global_epoch)
+                if to_exit:
+                    return
 
             if global_step % hparams.syncnet_eval_interval == 0:
                 with torch.no_grad():
