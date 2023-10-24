@@ -151,7 +151,6 @@ def train(device, model, train_data_loader, test_data_loader, optimizer,
     signal.signal(signal.SIGTERM, change_exit_flag)
 
     global global_step, global_epoch
-    resumed_step = global_step
 
     while global_epoch < nepochs:
         running_loss = 0.
