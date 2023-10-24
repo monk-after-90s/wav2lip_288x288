@@ -143,7 +143,7 @@ def train(device, model, train_data_loader, test_data_loader, optimizer,
     # 即将退出标识
     to_exit = False
 
-    def change_exit_flag():
+    def change_exit_flag(sig, frame):
         nonlocal to_exit
         to_exit = True
 
