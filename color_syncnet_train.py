@@ -170,8 +170,7 @@ def train(device, model, train_data_loader, test_data_loader, optimizer,
             running_loss += loss.item()
 
             if global_step == 1 or global_step % checkpoint_interval == 0:
-                save_checkpoint(
-                    model, optimizer, global_step, checkpoint_dir, global_epoch)
+                save_checkpoint(model, optimizer, global_step, checkpoint_dir, global_epoch)
 
             if global_step % hparams.syncnet_eval_interval == 0:
                 with torch.no_grad():
@@ -180,6 +179,7 @@ def train(device, model, train_data_loader, test_data_loader, optimizer,
             avg_loss = running_loss / (step + 1)
             prog_bar.set_description('Loss: {}'.format(avg_loss))
             if args.target_loss and avg_loss <= args.target_loss:
+                save_checkpoint(model, optimizer, global_step, checkpoint_dir, global_epoch)
                 print("target_loss reached, trainning stopped.")
                 return
 
