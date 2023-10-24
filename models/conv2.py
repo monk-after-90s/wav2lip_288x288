@@ -9,7 +9,8 @@ class Conv2d(nn.Module):
                             nn.Conv2d(cin, cout, kernel_size, stride, padding),
                             nn.BatchNorm2d(cout)
                             )
-        self.act = nn.PReLU()
+        # self.act = nn.PReLU()
+        self.act = nn.ReLU()
         self.residual = residual
 
     def forward(self, x):
