@@ -166,7 +166,7 @@ def train(device, model, train_data_loader, test_data_loader, optimizer,
             optimizer.step()
 
             global_step += 1
-            cur_session_steps = global_step - resumed_step
+            # cur_session_steps = global_step - resumed_step
             running_loss += loss.item()
 
             if global_step == 1 or global_step % checkpoint_interval == 0:
