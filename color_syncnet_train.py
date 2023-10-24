@@ -180,7 +180,7 @@ def train(device, model, train_data_loader, test_data_loader, optimizer,
             prog_bar.set_description('Loss: {}'.format(avg_loss))
             if args.target_loss and avg_loss <= args.target_loss:
                 save_checkpoint(model, optimizer, global_step, checkpoint_dir, global_epoch)
-                print("target_loss reached, trainning stopped.")
+                print(f"target_loss {args.target_loss} reached, trainning stopped.")
                 return
 
         global_epoch += 1
