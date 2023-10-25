@@ -27,6 +27,7 @@ parser.add_argument('--syncnet_checkpoint_path', help='Load the pre-trained Expe
                     type=str)
 
 parser.add_argument('--checkpoint_path', help='Resume from this checkpoint', default=None, type=str)
+parser.add_argument('--target_loss', help='Which Sync loss value to trigger training stopped', default=0.19, type=float)
 
 args = parser.parse_args()
 
@@ -281,7 +282,10 @@ def train(device, model, train_data_loader, test_data_loader, optimizer,
                 global_step,
                 running_l1_loss / (step + 1),
                 averaged_sync_loss))
-
+            # 目标达成
+            if averaged_sync_loss and averaged_sync_loss < args.target_loss:
+                save_checkpoint(model, optimizer, global_step, checkpoint_dir, global_epoch)
+                print(f"target_loss {args.target_loss} reached. Training stopped.")
         global_epoch += 1
 
 
