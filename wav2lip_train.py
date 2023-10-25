@@ -289,6 +289,7 @@ def train(device, model, train_data_loader, test_data_loader, optimizer,
             if averaged_sync_loss and averaged_sync_loss < args.target_loss:
                 save_checkpoint(model, optimizer, global_step, checkpoint_dir, global_epoch)
                 print(f"target_loss {args.target_loss} reached. Training stopped.")
+                return
         global_epoch += 1
 
 
