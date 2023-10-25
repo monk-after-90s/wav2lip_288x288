@@ -223,9 +223,11 @@ def train(device, model, train_data_loader, test_data_loader, optimizer,
     resumed_step = global_step
 
     while global_epoch < nepochs:
-        print('Starting Epoch: {}'.format(global_epoch))
+        # print('Starting Epoch: {}'.format(global_epoch))
         running_sync_loss, running_l1_loss = 0., 0.
         prog_bar = tqdm(enumerate(train_data_loader))
+
+        averaged_sync_loss = 0
         for step, (x, indiv_mels, mel, gt) in prog_bar:
             model.train()
             optimizer.zero_grad()
@@ -268,13 +270,17 @@ def train(device, model, train_data_loader, test_data_loader, optimizer,
 
             if global_step == 1 or global_step % hparams.eval_interval == 0:
                 with torch.no_grad():
-                    average_sync_loss = eval_model(test_data_loader, global_step, device, model, checkpoint_dir)
+                    averaged_running_l1_loss, averaged_sync_loss = eval_model(
+                        test_data_loader, global_step, device, model, checkpoint_dir)
 
-                    if average_sync_loss < .75:
+                    if averaged_sync_loss < .75:
                         hparams.set_hparam('syncnet_wt', 0.01)  # without image GAN a lesser weight is sufficient
 
-            prog_bar.set_description('L1: {}, Sync Loss: {}'.format(running_l1_loss / (step + 1),
-                                                                    running_sync_loss / (step + 1)))
+            prog_bar.set_description('Epoch: {}, step: {}, L1: {}, Sync Loss: {}'.format(
+                global_epoch,
+                global_step,
+                running_l1_loss / (step + 1),
+                averaged_sync_loss))
 
         global_epoch += 1
 
@@ -282,7 +288,7 @@ def train(device, model, train_data_loader, test_data_loader, optimizer,
 def eval_model(test_data_loader, global_step, device, model, checkpoint_dir):
     eval_steps = 100
     # eval_steps = 700
-    print('Evaluating for {} steps'.format(eval_steps))
+    # print('Evaluating for {} steps'.format(eval_steps))
     sync_losses, recon_losses = [], []
     step = 0
     while 1:
@@ -306,11 +312,11 @@ def eval_model(test_data_loader, global_step, device, model, checkpoint_dir):
 
             if step > eval_steps:
                 averaged_sync_loss = sum(sync_losses) / len(sync_losses)
-                averaged_recon_loss = sum(recon_losses) / len(recon_losses)
+                averaged_running_l1_loss = sum(recon_losses) / len(recon_losses)
 
-                print('L1: {}, Sync loss: {}'.format(averaged_recon_loss, averaged_sync_loss))
+                # print('L1: {}, Sync loss: {}'.format(averaged_running_l1_loss, averaged_sync_loss))
 
-                return averaged_sync_loss
+                return averaged_running_l1_loss, averaged_sync_loss
 
 
 def save_checkpoint(model, optimizer, step, checkpoint_dir, epoch):
