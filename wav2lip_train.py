@@ -225,12 +225,12 @@ def train(device, model, train_data_loader, test_data_loader, optimizer,
     global global_step, global_epoch
     resumed_step = global_step
 
+    averaged_sync_loss = 0
     while global_epoch < nepochs:
         # print('Starting Epoch: {}'.format(global_epoch))
         running_sync_loss, running_l1_loss = 0., 0.
         prog_bar = tqdm(enumerate(train_data_loader))
 
-        averaged_sync_loss = 0
         for step, (x, indiv_mels, mel, gt) in prog_bar:
             model.train()
             optimizer.zero_grad()
@@ -380,11 +380,11 @@ if __name__ == "__main__":
 
     train_data_loader = data_utils.DataLoader(
         train_dataset, batch_size=hparams.batch_size, shuffle=True,
-        num_workers=hparams.num_workers,drop_last=True)
+        num_workers=hparams.num_workers, drop_last=True)
 
     test_data_loader = data_utils.DataLoader(
         test_dataset, batch_size=hparams.batch_size,
-        num_workers=4,drop_last=True)
+        num_workers=4, drop_last=True)
 
     device = torch.device("cuda" if use_cuda else "cpu")
 
