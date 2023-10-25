@@ -1,3 +1,4 @@
+import signal
 from os.path import dirname, join, basename, isfile
 from tqdm import tqdm
 
@@ -199,6 +200,15 @@ def get_sync_loss(mel, g):
 
 def train(device, model, train_data_loader, test_data_loader, optimizer,
           checkpoint_dir=None, checkpoint_interval=None, nepochs=None):
+    # 即将退出标识
+    to_exit = False
+
+    def change_exit_flag(sig, frame):
+        nonlocal to_exit
+        to_exit = True
+
+    # 捕捉kill信号
+    signal.signal(signal.SIGTERM, change_exit_flag)
 
     global global_step, global_epoch
     resumed_step = global_step
@@ -242,9 +252,10 @@ def train(device, model, train_data_loader, test_data_loader, optimizer,
             else:
                 running_sync_loss += 0.
 
-            if global_step == 1 or global_step % checkpoint_interval == 0:
-                save_checkpoint(
-                    model, optimizer, global_step, checkpoint_dir, global_epoch)
+            if global_step == 1 or global_step % checkpoint_interval == 0 or to_exit:
+                save_checkpoint(model, optimizer, global_step, checkpoint_dir, global_epoch)
+                if to_exit:
+                    return
 
             if global_step == 1 or global_step % hparams.eval_interval == 0:
                 with torch.no_grad():
