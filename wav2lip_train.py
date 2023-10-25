@@ -210,6 +210,8 @@ def get_sync_loss(mel, g):
 
 def train(device, model, train_data_loader, test_data_loader, optimizer,
           checkpoint_dir=None, checkpoint_interval=None, nepochs=None):
+    # 刚启动初始化
+    init = True
     # 即将退出标识
     to_exit = False
 
@@ -269,7 +271,8 @@ def train(device, model, train_data_loader, test_data_loader, optimizer,
                 if to_exit:
                     return
 
-            if global_step == 1 or global_step % hparams.eval_interval == 0:
+            if global_step == 1 or global_step % hparams.eval_interval == 0 or init:
+                init = False
                 with torch.no_grad():
                     averaged_running_l1_loss, averaged_sync_loss = eval_model(
                         test_data_loader, global_step, device, model, checkpoint_dir)
