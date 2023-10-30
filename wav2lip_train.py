@@ -40,6 +40,8 @@ syncnet_T = 5
 syncnet_mel_step_size = 16
 
 
+# todo https://github.com/yukyeongleee/Wav2Lip-HQ#gpu-usage
+
 class Dataset(object):
     def __init__(self, split):
         self.all_videos = get_image_list(args.data_root, split)
