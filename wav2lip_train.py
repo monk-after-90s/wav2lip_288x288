@@ -379,6 +379,7 @@ def load_checkpoint(path, model, optimizer, reset_optimizer=False, overwrite_glo
 
 
 if __name__ == "__main__":
+    print("Warning: 如果数据集过少，可能导致脚本运行不了")
     checkpoint_dir = args.checkpoint_dir
 
     # Dataset and Dataloader setup
