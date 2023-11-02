@@ -20,7 +20,11 @@ from hparams import hparams, get_image_list
 
 parser = argparse.ArgumentParser(description='Code to train the Wav2Lip model without the visual quality discriminator')
 
-parser.add_argument("--data_root", help="Root folder of the preprocessed LRS2 dataset", required=True, type=str)
+parser.add_argument("--data_root", help="Root folder of the preprocessed dataset", required=True, type=str)
+parser.add_argument("--filelists_root",
+                    help="Root folder of videos sampling results: test.txt, train.txt, val.txt",
+                    default="filelists",
+                    type=str)
 
 parser.add_argument('--checkpoint_dir', help='Save checkpoints to this directory', required=True, type=str)
 parser.add_argument('--syncnet_checkpoint_path', help='Load the pre-trained Expert discriminator', required=True,
@@ -44,7 +48,7 @@ syncnet_mel_step_size = 16
 
 class Dataset(object):
     def __init__(self, split):
-        self.all_videos = get_image_list(args.data_root, split)
+        self.all_videos = get_image_list(args.filelists_root, args.data_root, split)
 
     def get_frame_id(self, frame):
         return int(basename(frame).split('.')[0])
