@@ -17,6 +17,11 @@ parser = argparse.ArgumentParser(description='Code to train the expert lip-sync 
 
 parser.add_argument("--data_root", help="Root folder of the preprocessed LRS2 dataset", required=True)
 
+parser.add_argument("--filelists_root",
+                    help="Root folder of videos sampling results: test.txt, train.txt, val.txt",
+                    default="filelists",
+                    type=str)
+
 parser.add_argument('--checkpoint_dir', help='Save checkpoints to this directory', required=True, type=str)
 parser.add_argument('--checkpoint_path', help='Resumed from this checkpoint', default=None, type=str)
 parser.add_argument('--target_loss', help='Which loss value to trigger training stopped', default=0.249, type=float)
@@ -34,7 +39,7 @@ syncnet_mel_step_size = 16
 
 class Dataset(object):
     def __init__(self, split):
-        self.all_videos = get_image_list(args.data_root, split)
+        self.all_videos = get_image_list(args.data_root, split, args.filelists_root)
 
     def get_frame_id(self, frame):
         return int(basename(frame).split('.')[0])

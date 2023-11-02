@@ -1,7 +1,7 @@
 import os
 
 
-def get_image_list(filelists_root, data_root, split):
+def get_image_list(data_root, split, filelists_root="filelists"):
     filelist = []
 
     with open(os.path.join(filelists_root, f"{split}.txt")) as f:
