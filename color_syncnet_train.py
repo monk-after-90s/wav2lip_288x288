@@ -105,7 +105,7 @@ class Dataset(object):
             if not all_read: continue
 
             try:
-                wavpath = join(vidname, "audio.wav")
+                wavpath = join(vidname, "audio.wav")  # 提前计算好mel频谱保存为文件
                 wav = audio.load_wav(wavpath, hparams.sample_rate)
 
                 orig_mel = audio.melspectrogram(wav).T
