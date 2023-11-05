@@ -1,3 +1,4 @@
+import traceback
 from os.path import dirname, join, basename, isfile
 from tqdm import tqdm
 import signal
@@ -110,11 +111,16 @@ class Dataset(object):
             if not all_read: continue
 
             try:
-                wavpath = join(vidname, "audio.wav")  # 提前计算好mel频谱保存为文件
-                wav = audio.load_wav(wavpath, hparams.sample_rate)
-
-                orig_mel = audio.melspectrogram(wav).T
+                mel_path = join(vidname, "audio_mel.npy")
+                if not os.path.exists(mel_path):
+                    wavpath = join(vidname, "audio.wav")
+                    wav = audio.load_wav(wavpath, hparams.sample_rate)
+                    orig_mel = audio.melspectrogram(wav).T
+                    np.save(mel_path, orig_mel)
+                else:
+                    orig_mel = np.load(mel_path)
             except Exception as e:
+                print(traceback.print_exc())
                 continue
 
             mel = self.crop_audio_window(orig_mel.copy(), img_name)
