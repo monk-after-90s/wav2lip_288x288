@@ -259,7 +259,7 @@ def main():
     full_frames = full_frames[:len(mel_chunks)]
 
     batch_size = args.wav2lip_batch_size
-    gen = datagen(full_frames.copy(), mel_chunks)
+    gen = datagen(full_frames, mel_chunks)
 
     for i, (img_batch, mel_batch, frames, coords) in enumerate(tqdm(gen,
                                                                     total=int(
