@@ -125,6 +125,9 @@ def datagen(frames, mels):
         print('Using the specified bounding box instead of face detection...')
         y1, y2, x1, x2 = args.box
         face_det_results = [[f[y1: y2, x1:x2], (y1, y2, x1, x2)] for f in frames]
+    # 无限拼接
+    frames = np.concatenate((frames, np.flip(frames, axis=0)), axis=0)
+    face_det_results = face_det_results + face_det_results[::-1]
 
     for i, m in enumerate(mels):
         idx = 0 if args.static else i % len(frames)
