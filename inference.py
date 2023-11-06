@@ -1,9 +1,7 @@
-from os import listdir, path
 import numpy as np
-import scipy, cv2, os, sys, argparse, audio
-import json, subprocess, random, string
+import cv2, os, argparse, audio
+import subprocess
 from tqdm import tqdm
-from glob import glob
 import torch, face_detection
 from models import Wav2Lip
 import platform
