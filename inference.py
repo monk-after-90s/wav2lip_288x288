@@ -6,6 +6,9 @@ import torch, face_detection
 from models import Wav2Lip
 import platform
 
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+print('Using {} for inference.'.format(device))
+
 
 def get_smoothened_boxes(boxes, T):
     for i in range(len(boxes)):
@@ -289,7 +292,5 @@ if __name__ == '__main__':
         args.static = True
 
     mel_step_size = 16
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    print('Using {} for inference.'.format(device))
 
     main()
