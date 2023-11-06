@@ -9,12 +9,15 @@ import platform
 parser = argparse.ArgumentParser(description='Inference code to lip-sync videos in the wild using Wav2Lip models')
 
 parser.add_argument('--checkpoint_path', type=str,
-                    help='Name of saved checkpoint to load weights from', required=True)
+                    help='Name of saved checkpoint to load weights from',
+                    required=True if __name__ == '__main__' else False)
 
 parser.add_argument('--face', type=str,
-                    help='Filepath of video/image that contains faces to use', required=True)
+                    help='Filepath of video/image that contains faces to use',
+                    required=True if __name__ == '__main__' else False)
 parser.add_argument('--audio', type=str,
-                    help='Filepath of video/audio file to use as raw audio source', required=True)
+                    help='Filepath of video/audio file to use as raw audio source',
+                    required=True if __name__ == '__main__' else False)
 parser.add_argument('--outfile', type=str, help='Video path to save result. See default for an e.g.',
                     default='')
 
@@ -52,10 +55,10 @@ args = parser.parse_args()
 # args.img_size = 96
 args.img_size = 288
 # output file
-if not args.outfile:
+if not args.outfile and __name__ == '__main__':
     args.outfile = os.path.join("results", os.path.basename(args.checkpoint_path) + ".mp4")
 
-if os.path.isfile(args.face) and args.face.split('.')[1] in ['jpg', 'png', 'jpeg']:
+if __name__ == '__main__' and os.path.isfile(args.face) and args.face.split('.')[1] in ['jpg', 'png', 'jpeg']:
     args.static = True
 
 
