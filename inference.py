@@ -290,6 +290,9 @@ def main(face: str, audio_path: str, model: Wav2Lip,
             os.remove(tmp_audio)
         if os.path.exists(tmp_video):
             os.remove(tmp_video)
+        # 清理显存
+        del fa
+        torch.cuda.empty_cache()
 
 
 _fa = None
