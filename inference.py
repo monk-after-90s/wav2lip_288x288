@@ -153,136 +153,143 @@ def main(face: str, audio_path: str, model: Wav2Lip,
          box: List = [-1, -1, -1, -1], static: bool = False, face_det_batch_size: int = 16, pads: List = [0, 10, 0, 0],
          nosmooth: bool = False, img_size: int = 288,
          device: str = "cuda", mel_step_size: int = 16):
-    if fa is None:
-        fa = get_fa(device)
+    tmp_video = ''
+    tmp_audio = ''
+    try:
+        if fa is None:
+            fa = get_fa(device)
 
-    if not os.path.isfile(face):
-        raise ValueError('--face argument must be a valid path to video/image file')
+        if not os.path.isfile(face):
+            raise ValueError('--face argument must be a valid path to video/image file')
 
-    elif face.split('.')[1] in ['jpg', 'png', 'jpeg']:
-        full_frames = [cv2.imread(face)]
-    else:
-        video_stream = cv2.VideoCapture(face)
-        fps = video_stream.get(cv2.CAP_PROP_FPS)
+        elif face.split('.')[1] in ['jpg', 'png', 'jpeg']:
+            full_frames = [cv2.imread(face)]
+        else:
+            video_stream = cv2.VideoCapture(face)
+            fps = video_stream.get(cv2.CAP_PROP_FPS)
 
-        print('Reading video frames...')
+            print('Reading video frames...')
 
-        full_frames = []
+            full_frames = []
+            while 1:
+                still_reading, frame = video_stream.read()
+                if not still_reading:
+                    video_stream.release()
+                    break
+                if resize_factor > 1:
+                    frame = cv2.resize(frame, (frame.shape[1] // resize_factor, frame.shape[0] // resize_factor))
+
+                if rotate:
+                    frame = cv2.rotate(frame, cv2.cv2.ROTATE_90_CLOCKWISE)
+
+                y1, y2, x1, x2 = crop
+                if x2 == -1: x2 = frame.shape[1]
+                if y2 == -1: y2 = frame.shape[0]
+
+                frame = frame[y1:y2, x1:x2]
+
+                full_frames.append(frame)
+
+        print("Number of frames available for inference: " + str(len(full_frames)))
+
+        if not audio_path.endswith('.wav'):
+            print('Extracting raw audio...')
+            tmp_audio = f"/dev/shm/{uuid.uuid4()}.wav"
+            command = 'ffmpeg -y -i {} -strict -2 {}'.format(audio_path, tmp_audio)
+
+            subprocess.call(command, shell=True)
+            audio_path = tmp_audio
+
+        wav = audio.load_wav(audio_path, 16000)
+        mel = audio.melspectrogram(wav)
+        print(mel.shape)
+
+        if np.isnan(mel.reshape(-1)).sum() > 0:
+            raise ValueError(
+                'Mel contains nan! Using a TTS voice? Add a small epsilon noise to the wav file and try again')
+
+        mel_chunks = []
+        mel_idx_multiplier = 80. / fps
+        i = 0
         while 1:
-            still_reading, frame = video_stream.read()
-            if not still_reading:
-                video_stream.release()
+            start_idx = int(i * mel_idx_multiplier)
+            if start_idx + mel_step_size > len(mel[0]):
+                mel_chunks.append(mel[:, len(mel[0]) - mel_step_size:])
                 break
-            if resize_factor > 1:
-                frame = cv2.resize(frame, (frame.shape[1] // resize_factor, frame.shape[0] // resize_factor))
+            mel_chunks.append(mel[:, start_idx: start_idx + mel_step_size])
+            i += 1
 
-            if rotate:
-                frame = cv2.rotate(frame, cv2.cv2.ROTATE_90_CLOCKWISE)
+        print("Length of mel chunks: {}".format(len(mel_chunks)))
 
-            y1, y2, x1, x2 = crop
-            if x2 == -1: x2 = frame.shape[1]
-            if y2 == -1: y2 = frame.shape[0]
+        full_frames = full_frames[:len(mel_chunks)]
 
-            frame = frame[y1:y2, x1:x2]
+        batch_size = wav2lip_batch_size
+        gen = datagen(full_frames, mel_chunks, box, static, face_det_batch_size,
+                      pads, nosmooth, img_size, wav2lip_batch_size, device)
+        # 原全帧与推理全帧对
+        fullFramePair = namedtuple("fullFramePair", ["org_full_frame", "pred_full_frame"])
+        full_frame_pairs: List[fullFramePair] = []
+        for i, (img_batch, mel_batch, frames, coords) in enumerate(tqdm(gen,
+                                                                        total=int(
+                                                                            np.ceil(
+                                                                                float(len(mel_chunks)) / batch_size)))):
+            img_batch = torch.FloatTensor(np.transpose(img_batch, (0, 3, 1, 2))).to(device)
+            mel_batch = torch.FloatTensor(np.transpose(mel_batch, (0, 3, 1, 2))).to(device)
 
-            full_frames.append(frame)
+            with torch.no_grad():
+                pred = model(mel_batch, img_batch)
 
-    print("Number of frames available for inference: " + str(len(full_frames)))
+            pred = pred.cpu().numpy().transpose(0, 2, 3, 1) * 255.
 
-    tmp_audio = None
-    if not audio_path.endswith('.wav'):
-        print('Extracting raw audio...')
-        tmp_audio = f"/dev/shm/{uuid.uuid4()}.wav"
-        command = 'ffmpeg -y -i {} -strict -2 {}'.format(audio_path, tmp_audio)
+            for p, f, c in zip(pred, frames, coords):
+                y1, y2, x1, x2 = c
+                p = cv2.resize(p.astype(np.uint8), (x2 - x1, y2 - y1))
+                org_full_frame = f.copy()
+                f[y1:y2, x1:x2] = p
+                full_frame_pairs.append(fullFramePair(org_full_frame=org_full_frame, pred_full_frame=f))
 
-        subprocess.call(command, shell=True)
-        audio_path = tmp_audio
+        # 推理的人脸遮罩点 抠图 ToDo refer to https://github.com/Rudrabha/Wav2Lip/issues/415
+        pred_batch_landmarks = fa.get_landmarks_from_batch(
+            torch.Tensor(
+                np.stack([full_frame_pair.pred_full_frame for full_frame_pair in full_frame_pairs]).transpose(0, 3, 1,
+                                                                                                              2)))
+        # 无声视频
+        frame_h, frame_w = full_frames[0].shape[:-1]
+        tmp_video = f"/dev/shm/{uuid.uuid4()}.avi"
+        out = cv2.VideoWriter(tmp_video, cv2.VideoWriter_fourcc(*'DIVX'), fps, (frame_w, frame_h))
+        for full_frame_pair, points_68 in zip(full_frame_pairs, pred_batch_landmarks):
+            p = full_frame_pair.pred_full_frame  # 推理全帧
+            frame_ndarray = full_frame_pair.org_full_frame  # 原全帧
 
-    wav = audio.load_wav(audio_path, 16000)
-    mel = audio.melspectrogram(wav)
-    print(mel.shape)
+            assert points_68.shape[0] >= 17
+            face_points = points_68[:17]
+            if points_68.shape[0] >= 25:
+                face_points = np.append(face_points, [points_68[24], points_68[19]], axis=0)
+            face_points = np.stack(face_points).astype(np.int32)
+            # 1. 创建一个长方形遮罩
+            mask = np.zeros(p.shape[:2], dtype=np.uint8)
+            # 2. 使用fillPoly绘制人脸遮罩
+            cv2.fillPoly(mask, [face_points], (255, 255, 255))
+            # 反向遮罩
+            reverse_mask = cv2.bitwise_not(mask)
+            # 3. 使用遮罩提取人脸
+            face_image = cv2.bitwise_and(p, p, mask=mask)
+            # 提取人脸周围
+            face_surrounding = cv2.bitwise_and(frame_ndarray, frame_ndarray, mask=reverse_mask)
+            # 推理出的人脸贴回原帧
+            joined_frame = cv2.add(face_image, face_surrounding)
+            out.write(joined_frame)
 
-    if np.isnan(mel.reshape(-1)).sum() > 0:
-        raise ValueError('Mel contains nan! Using a TTS voice? Add a small epsilon noise to the wav file and try again')
+        out.release()
 
-    mel_chunks = []
-    mel_idx_multiplier = 80. / fps
-    i = 0
-    while 1:
-        start_idx = int(i * mel_idx_multiplier)
-        if start_idx + mel_step_size > len(mel[0]):
-            mel_chunks.append(mel[:, len(mel[0]) - mel_step_size:])
-            break
-        mel_chunks.append(mel[:, start_idx: start_idx + mel_step_size])
-        i += 1
-
-    print("Length of mel chunks: {}".format(len(mel_chunks)))
-
-    full_frames = full_frames[:len(mel_chunks)]
-
-    batch_size = wav2lip_batch_size
-    gen = datagen(full_frames, mel_chunks, box, static, face_det_batch_size,
-                  pads, nosmooth, img_size, wav2lip_batch_size, device)
-    # 原全帧与推理全帧对
-    fullFramePair = namedtuple("fullFramePair", ["org_full_frame", "pred_full_frame"])
-    full_frame_pairs: List[fullFramePair] = []
-    for i, (img_batch, mel_batch, frames, coords) in enumerate(tqdm(gen,
-                                                                    total=int(
-                                                                        np.ceil(float(len(mel_chunks)) / batch_size)))):
-        img_batch = torch.FloatTensor(np.transpose(img_batch, (0, 3, 1, 2))).to(device)
-        mel_batch = torch.FloatTensor(np.transpose(mel_batch, (0, 3, 1, 2))).to(device)
-
-        with torch.no_grad():
-            pred = model(mel_batch, img_batch)
-
-        pred = pred.cpu().numpy().transpose(0, 2, 3, 1) * 255.
-
-        for p, f, c in zip(pred, frames, coords):
-            y1, y2, x1, x2 = c
-            p = cv2.resize(p.astype(np.uint8), (x2 - x1, y2 - y1))
-            org_full_frame = f.copy()
-            f[y1:y2, x1:x2] = p
-            full_frame_pairs.append(fullFramePair(org_full_frame=org_full_frame, pred_full_frame=f))
-
-    # 推理的人脸遮罩点 抠图 ToDo refer to https://github.com/Rudrabha/Wav2Lip/issues/415
-    pred_batch_landmarks = fa.get_landmarks_from_batch(
-        torch.Tensor(
-            np.stack([full_frame_pair.pred_full_frame for full_frame_pair in full_frame_pairs]).transpose(0, 3, 1, 2)))
-    # 无声视频
-    frame_h, frame_w = full_frames[0].shape[:-1]
-    tmp_video = f"/dev/shm/{uuid.uuid4()}.avi"
-    out = cv2.VideoWriter(tmp_video, cv2.VideoWriter_fourcc(*'DIVX'), fps, (frame_w, frame_h))
-    for full_frame_pair, points_68 in zip(full_frame_pairs, pred_batch_landmarks):
-        p = full_frame_pair.pred_full_frame  # 推理全帧
-        frame_ndarray = full_frame_pair.org_full_frame  # 原全帧
-
-        assert points_68.shape[0] >= 17
-        face_points = points_68[:17]
-        if points_68.shape[0] >= 25:
-            face_points = np.append(face_points, [points_68[24], points_68[19]], axis=0)
-        face_points = np.stack(face_points).astype(np.int32)
-        # 1. 创建一个长方形遮罩
-        mask = np.zeros(p.shape[:2], dtype=np.uint8)
-        # 2. 使用fillPoly绘制人脸遮罩
-        cv2.fillPoly(mask, [face_points], (255, 255, 255))
-        # 反向遮罩
-        reverse_mask = cv2.bitwise_not(mask)
-        # 3. 使用遮罩提取人脸
-        face_image = cv2.bitwise_and(p, p, mask=mask)
-        # 提取人脸周围
-        face_surrounding = cv2.bitwise_and(frame_ndarray, frame_ndarray, mask=reverse_mask)
-        # 推理出的人脸贴回原帧
-        joined_frame = cv2.add(face_image, face_surrounding)
-        out.write(joined_frame)
-
-    out.release()
-
-    command = 'ffmpeg -y -i {} -i {} -strict -2 -q:v 1 {}'.format(audio_path, tmp_video, outfile)
-    subprocess.call(command, shell=platform.system() != 'Windows')
-    # 清理临时文件
-    if tmp_audio:
-        os.remove(tmp_audio)
-    os.remove(tmp_video)
+        command = 'ffmpeg -y -i {} -i {} -strict -2 -q:v 1 {}'.format(audio_path, tmp_video, outfile)
+        subprocess.call(command, shell=platform.system() != 'Windows')
+    finally:
+        # 清理临时文件
+        if os.path.exists(tmp_audio):
+            os.remove(tmp_audio)
+        if os.path.exists(tmp_video):
+            os.remove(tmp_video)
 
 
 _fa = None
