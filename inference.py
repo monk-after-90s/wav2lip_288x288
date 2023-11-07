@@ -292,7 +292,7 @@ def main():
             f[y1:y2, x1:x2] = p
             full_frame_pairs.append(fullFramePair(org_full_frame=org_full_frame, pred_full_frame=f))
 
-    # 推理的人脸遮罩点 抠图
+    # 推理的人脸遮罩点 抠图 ToDo refer to https://github.com/Rudrabha/Wav2Lip/issues/415
     pred_batch_landmarks = get_fa().get_landmarks_from_batch(
         torch.Tensor(
             np.stack([full_frame_pair.pred_full_frame for full_frame_pair in full_frame_pairs]).transpose(0, 3, 1, 2)))
