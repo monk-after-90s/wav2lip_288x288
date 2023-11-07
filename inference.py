@@ -1,3 +1,5 @@
+from collections import namedtuple
+from typing import List
 import numpy as np
 import cv2, os, argparse, audio
 import subprocess
@@ -5,6 +7,7 @@ from tqdm import tqdm
 import torch, face_detection
 from models import Wav2Lip
 import platform
+import face_alignment
 
 parser = argparse.ArgumentParser(description='Inference code to lip-sync videos in the wild using Wav2Lip models')
 
@@ -261,17 +264,18 @@ def main():
 
     batch_size = args.wav2lip_batch_size
     gen = datagen(full_frames, mel_chunks)
+    # 原全帧与推理全帧对
+    fullFramePair = namedtuple("fullFramePair", ["org_full_frame", "pred_full_frame"])
+    full_frame_pairs: List[fullFramePair] = []
 
+    origin_full_frames: List[np.ndarray] = []  # 原帧
+    pred_full_frames: List[np.ndarray] = []  # 推理帧
     for i, (img_batch, mel_batch, frames, coords) in enumerate(tqdm(gen,
                                                                     total=int(
                                                                         np.ceil(float(len(mel_chunks)) / batch_size)))):
         if i == 0:
             model = load_model(args.checkpoint_path)
             print("Model loaded")
-
-            frame_h, frame_w = full_frames[0].shape[:-1]
-            out = cv2.VideoWriter('temp/result.avi',
-                                  cv2.VideoWriter_fourcc(*'DIVX'), fps, (frame_w, frame_h))
 
         img_batch = torch.FloatTensor(np.transpose(img_batch, (0, 3, 1, 2))).to(device)
         mel_batch = torch.FloatTensor(np.transpose(mel_batch, (0, 3, 1, 2))).to(device)
@@ -284,14 +288,58 @@ def main():
         for p, f, c in zip(pred, frames, coords):
             y1, y2, x1, x2 = c
             p = cv2.resize(p.astype(np.uint8), (x2 - x1, y2 - y1))
-
+            org_full_frame = f.copy()
             f[y1:y2, x1:x2] = p
-            out.write(f)
+            full_frame_pairs.append(fullFramePair(org_full_frame=org_full_frame, pred_full_frame=f))
+
+    # 推理的人脸遮罩点 抠图
+    pred_batch_landmarks = get_fa().get_landmarks_from_batch(
+        torch.Tensor(
+            np.stack([full_frame_pair.pred_full_frame for full_frame_pair in full_frame_pairs]).transpose(0, 3, 1, 2)))
+    # 无声视频
+    frame_h, frame_w = full_frames[0].shape[:-1]
+    out = cv2.VideoWriter('temp/result.avi',
+                          cv2.VideoWriter_fourcc(*'DIVX'), fps, (frame_w, frame_h))
+    for full_frame_pair, points_68 in zip(full_frame_pairs, pred_batch_landmarks):
+        p = full_frame_pair.pred_full_frame  # 推理全帧
+        frame_ndarray = full_frame_pair.org_full_frame  # 原全帧
+
+        assert points_68.shape[0] >= 17
+        face_points = points_68[:17]
+        if points_68.shape[0] >= 25:
+            face_points = np.append(face_points, [points_68[24], points_68[19]], axis=0)
+        face_points = np.stack(face_points).astype(np.int32)
+        # 1. 创建一个长方形遮罩
+        mask = np.zeros(p.shape[:2], dtype=np.uint8)
+        # 2. 使用fillPoly绘制人脸遮罩
+        cv2.fillPoly(mask, [face_points], (255, 255, 255))
+        # 反向遮罩
+        reverse_mask = cv2.bitwise_not(mask)
+        # 3. 使用遮罩提取人脸
+        face_image = cv2.bitwise_and(p, p, mask=mask)
+        # 提取人脸周围
+        face_surrounding = cv2.bitwise_and(frame_ndarray, frame_ndarray, mask=reverse_mask)
+        # 推理出的人脸贴回原帧
+        joined_frame = cv2.add(face_image, face_surrounding)
+        out.write(joined_frame)
 
     out.release()
 
     command = 'ffmpeg -y -i {} -i {} -strict -2 -q:v 1 {}'.format(args.audio, 'temp/result.avi', args.outfile)
     subprocess.call(command, shell=platform.system() != 'Windows')
+
+
+_fa = None
+
+
+def get_fa():
+    """获取FaceAlignment实例"""
+    global _fa
+    if _fa is None:
+        print(f"load face_alignment model")
+        _fa = face_alignment.FaceAlignment(
+            face_alignment.LandmarksType.TWO_HALF_D, device=device, face_detector='blazeface')
+    return _fa
 
 
 if __name__ == '__main__':
