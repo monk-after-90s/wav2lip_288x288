@@ -146,8 +146,8 @@ def load_model(path, device):
     return model.eval()
 
 
-def main(face: str, audio_path: str, fa: face_alignment.FaceAlignment,
-         model: Wav2Lip = None, fps: float = 25., resize_factor: int = 1, rotate: bool = False,
+def main(face: str, audio_path: str, fa: face_alignment.FaceAlignment, model: Wav2Lip,
+         fps: float = 25., resize_factor: int = 1, rotate: bool = False,
          wav2lip_batch_size: int = 128, crop: List = [0, -1, 0, -1], outfile: str = '',
          box: List = [-1, -1, -1, -1], static: bool = False, face_det_batch_size: int = 16, pads: List = [0, 10, 0, 0],
          nosmooth: bool = False, img_size: int = 288,
