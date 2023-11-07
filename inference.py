@@ -267,9 +267,6 @@ def main():
     # 原全帧与推理全帧对
     fullFramePair = namedtuple("fullFramePair", ["org_full_frame", "pred_full_frame"])
     full_frame_pairs: List[fullFramePair] = []
-
-    origin_full_frames: List[np.ndarray] = []  # 原帧
-    pred_full_frames: List[np.ndarray] = []  # 推理帧
     for i, (img_batch, mel_batch, frames, coords) in enumerate(tqdm(gen,
                                                                     total=int(
                                                                         np.ceil(float(len(mel_chunks)) / batch_size)))):
