@@ -8,6 +8,8 @@ import torch, face_detection
 from models import Wav2Lip
 import platform
 import mediapipe as mp
+from mediapipe.tasks import python
+from mediapipe.tasks.python import vision
 
 
 def get_smoothened_boxes(boxes, T):
@@ -183,8 +185,7 @@ def main(face: str, audio_path: str, model: Wav2Lip,
          box: List = [-1, -1, -1, -1], static: bool = False, face_det_batch_size: int = 16, pads: List = [0, 10, 0, 0],
          nosmooth: bool = False, img_size: int = 288,
          device: str = "cuda", mel_step_size: int = 16,
-         face_landmarks_detector=None,
-         with_face_mask: bool = True):
+         face_landmarks_detector=None):
     tmp_video = ''
     tmp_audio = ''
     try:
@@ -256,10 +257,6 @@ def main(face: str, audio_path: str, model: Wav2Lip,
         gen = datagen(full_frames, mel_chunks, box, static, face_det_batch_size,
                       pads, nosmooth, img_size, wav2lip_batch_size, device)
 
-        # 遮罩检测器
-        if face_landmarks_detector is None:
-            ...
-
         # 无声视频
         frame_h, frame_w = full_frames[0].shape[:-1]
         tmp_video = f"/dev/shm/{uuid.uuid4()}.avi"
@@ -279,7 +276,7 @@ def main(face: str, audio_path: str, model: Wav2Lip,
             for p, f, c in zip(pred, frames, coords):
                 y1, y2, x1, x2 = c
                 p = cv2.resize(p.astype(np.uint8), (x2 - x1, y2 - y1))
-                if with_face_mask:
+                if face_landmarks_detector:
                     mask = face_mask_from_image(p, face_landmarks_detector)
                     f[y1:y2, x1:x2] = f[y1:y2, x1:x2] * (1 - mask[..., None]) + p * mask[..., None]
                 else:
@@ -300,16 +297,6 @@ def main(face: str, audio_path: str, model: Wav2Lip,
 
 
 _fa = None
-
-# def get_fa(device: str = "cuda"):
-#     """获取FaceAlignment实例"""
-#     global _fa
-#     if _fa is None:
-#         print(f"load face_alignment model")
-#         _fa = face_alignment.FaceAlignment(
-#             face_alignment.LandmarksType.TWO_HALF_D, device=device, face_detector='blazeface')
-#     return _fa
-
 
 if __name__ == '__main__':
     # 命令行参数
@@ -357,11 +344,10 @@ if __name__ == '__main__':
 
     parser.add_argument('--nosmooth', default=False, action='store_true',
                         help='Prevent smoothing face detections over a short temporal window')
-    parser.add_argument('--face_landmarks_detector_path', default='weights/face_landmarker_v2_with_blendshapes.task',
-                        type=str, help='Path to face landmarks detector')
-    parser.add_argument('--with_face_mask', action='store_true',
-                        help='Blend output into original frame using a face mask rather than directly blending the face box. This prevents a lower resolution square artifact around lower face')
-
+    parser.add_argument('--face_landmarks_detector_path',
+                        default='weights/face_landmarker_v2_with_blendshapes.task',
+                        type=str,
+                        help='Path to face landmarks detector. Pass empty string to ignore face landmarks detection.')
     args = parser.parse_args()
     # args.img_size = 96
     args.img_size = 288
@@ -378,20 +364,21 @@ if __name__ == '__main__':
     model = load_model(args.checkpoint_path, device)
     print("Model loaded")
     # 人脸遮罩检测器
-    BaseOptions = mp.tasks.BaseOptions
-    FaceLandmarker = mp.tasks.vision.FaceLandmarker
-    FaceLandmarkerOptions = mp.tasks.vision.FaceLandmarkerOptions
-    VisionRunningMode = mp.tasks.vision.RunningMode
-
-    options = FaceLandmarkerOptions(
-        base_options=BaseOptions(model_asset_path='weights/face_landmarker_v2_with_blendshapes.task'),
-        running_mode=VisionRunningMode.IMAGE)
-    with FaceLandmarker.create_from_options(options) as face_landmarks_detector:
+    # Create an FaceLandmarker object.
+    face_landmarks_detector = vision.FaceLandmarker.create_from_options(
+        vision.FaceLandmarkerOptions(
+            base_options=python.BaseOptions(model_asset_path=args.face_landmarks_detector_path),
+            output_face_blendshapes=True,
+            output_facial_transformation_matrixes=True,
+            num_faces=1)
+    ) if args.face_landmarks_detector_path else None
+    try:
         # 推理主过程
         main(model=model, face=args.face, fps=args.fps, resize_factor=args.resize_factor, rotate=args.rotate,
-             audio_path=args.audio,
-             wav2lip_batch_size=args.wav2lip_batch_size, crop=args.crop, outfile=args.outfile,
+             audio_path=args.audio, wav2lip_batch_size=args.wav2lip_batch_size, crop=args.crop, outfile=args.outfile,
              box=args.box, static=args.static, face_det_batch_size=args.face_det_batch_size,
              pads=args.pads, nosmooth=args.nosmooth, img_size=args.img_size,
-             device=device, mel_step_size=16, face_landmarks_detector=face_landmarks_detector,
-             with_face_mask=args.with_face_mask)
+             device=device, mel_step_size=16, face_landmarks_detector=face_landmarks_detector)
+    finally:
+        if hasattr(face_landmarks_detector, "close"):
+            face_landmarks_detector.close()
