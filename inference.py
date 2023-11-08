@@ -1,5 +1,4 @@
 import uuid
-from collections import namedtuple
 from typing import List
 import numpy as np
 import cv2, os, argparse, audio
@@ -8,7 +7,7 @@ from tqdm import tqdm
 import torch, face_detection
 from models import Wav2Lip
 import platform
-import face_alignment
+import mediapipe as mp
 
 
 def get_smoothened_boxes(boxes, T):
@@ -146,19 +145,49 @@ def load_model(path, device):
     return model.eval()
 
 
+def face_mask_from_image(image, face_landmarks_detector):
+    """
+    Calculate face mask from image. This is done by
+
+    Args:
+        image: numpy array of an image
+        face_landmarks_detector: mediapipa face landmarks detector
+    Returns:
+        A uint8 numpy array with the same height and width of the input image, containing a binary mask of the face in the image
+    """
+    # initialize mask
+    mask = np.zeros((image.shape[0], image.shape[1]), dtype=np.uint8)
+
+    # detect face landmarks
+    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=image)
+    detection = face_landmarks_detector.detect(mp_image)
+
+    if len(detection.face_landmarks) == 0:
+        # no face detected - set mask to all of the image
+        mask[:] = 1
+        return mask
+
+    # extract landmarks coordinates
+    face_coords = np.array([[lm.x * image.shape[1], lm.y * image.shape[0]] for lm in detection.face_landmarks[0]])
+
+    # calculate convex hull from face coordinates
+    convex_hull = cv2.convexHull(face_coords.astype(np.float32))
+
+    # apply convex hull to mask
+    return cv2.fillPoly(mask, pts=[convex_hull.squeeze().astype(np.int32)], color=1)
+
+
 def main(face: str, audio_path: str, model: Wav2Lip,
-         fa: face_alignment.FaceAlignment = None,
          fps: float = 25., resize_factor: int = 1, rotate: bool = False,
          wav2lip_batch_size: int = 128, crop: List = [0, -1, 0, -1], outfile: str = '',
          box: List = [-1, -1, -1, -1], static: bool = False, face_det_batch_size: int = 16, pads: List = [0, 10, 0, 0],
          nosmooth: bool = False, img_size: int = 288,
-         device: str = "cuda", mel_step_size: int = 16):
+         device: str = "cuda", mel_step_size: int = 16,
+         face_landmarks_detector=None,
+         with_face_mask: bool = True):
     tmp_video = ''
     tmp_audio = ''
     try:
-        if fa is None:
-            fa = get_fa(device)
-
         if not os.path.isfile(face):
             raise ValueError('--face argument must be a valid path to video/image file')
 
@@ -226,9 +255,15 @@ def main(face: str, audio_path: str, model: Wav2Lip,
         batch_size = wav2lip_batch_size
         gen = datagen(full_frames, mel_chunks, box, static, face_det_batch_size,
                       pads, nosmooth, img_size, wav2lip_batch_size, device)
-        # 原全帧与推理全帧对
-        fullFramePair = namedtuple("fullFramePair", ["org_full_frame", "pred_full_frame"])
-        full_frame_pairs: List[fullFramePair] = []
+
+        # 遮罩检测器
+        if face_landmarks_detector is None:
+            ...
+
+        # 无声视频
+        frame_h, frame_w = full_frames[0].shape[:-1]
+        tmp_video = f"/dev/shm/{uuid.uuid4()}.avi"
+        out = cv2.VideoWriter(tmp_video, cv2.VideoWriter_fourcc(*'DIVX'), fps, (frame_w, frame_h))
         for i, (img_batch, mel_batch, frames, coords) in enumerate(tqdm(gen,
                                                                         total=int(
                                                                             np.ceil(
@@ -244,42 +279,12 @@ def main(face: str, audio_path: str, model: Wav2Lip,
             for p, f, c in zip(pred, frames, coords):
                 y1, y2, x1, x2 = c
                 p = cv2.resize(p.astype(np.uint8), (x2 - x1, y2 - y1))
-                org_full_frame = f.copy()
-                f[y1:y2, x1:x2] = p
-                full_frame_pairs.append(fullFramePair(org_full_frame=org_full_frame, pred_full_frame=f))
-
-        # 推理的人脸遮罩点 抠图 ToDo refer to https://github.com/Rudrabha/Wav2Lip/issues/415
-        pred_batch_landmarks = fa.get_landmarks_from_batch(
-            torch.Tensor(
-                np.stack([full_frame_pair.pred_full_frame for full_frame_pair in full_frame_pairs]).transpose(0, 3, 1,
-                                                                                                              2)))
-        # 无声视频
-        frame_h, frame_w = full_frames[0].shape[:-1]
-        tmp_video = f"/dev/shm/{uuid.uuid4()}.avi"
-        out = cv2.VideoWriter(tmp_video, cv2.VideoWriter_fourcc(*'DIVX'), fps, (frame_w, frame_h))
-        for full_frame_pair, points_68 in zip(full_frame_pairs, pred_batch_landmarks):
-            p = full_frame_pair.pred_full_frame  # 推理全帧
-            frame_ndarray = full_frame_pair.org_full_frame  # 原全帧
-
-            assert points_68.shape[0] >= 17
-            face_points = points_68[:17]
-            if points_68.shape[0] >= 25:
-                face_points = np.append(face_points, [points_68[24], points_68[19]], axis=0)
-            face_points = np.stack(face_points).astype(np.int32)
-            # 1. 创建一个长方形遮罩
-            mask = np.zeros(p.shape[:2], dtype=np.uint8)
-            # 2. 使用fillPoly绘制人脸遮罩
-            cv2.fillPoly(mask, [face_points], (255, 255, 255))
-            # 反向遮罩
-            reverse_mask = cv2.bitwise_not(mask)
-            # 3. 使用遮罩提取人脸
-            face_image = cv2.bitwise_and(p, p, mask=mask)
-            # 提取人脸周围
-            face_surrounding = cv2.bitwise_and(frame_ndarray, frame_ndarray, mask=reverse_mask)
-            # 推理出的人脸贴回原帧
-            joined_frame = cv2.add(face_image, face_surrounding)
-            out.write(joined_frame)
-
+                if with_face_mask:
+                    mask = face_mask_from_image(p, face_landmarks_detector)
+                    f[y1:y2, x1:x2] = f[y1:y2, x1:x2] * (1 - mask[..., None]) + p * mask[..., None]
+                else:
+                    f[y1:y2, x1:x2] = p
+                out.write(f)
         out.release()
 
         command = 'ffmpeg -y -i {} -i {} -strict -2 -q:v 1 {}'.format(audio_path, tmp_video, outfile)
@@ -291,24 +296,23 @@ def main(face: str, audio_path: str, model: Wav2Lip,
         if os.path.exists(tmp_video):
             os.remove(tmp_video)
         # 清理显存
-        del fa
         torch.cuda.empty_cache()
 
 
 _fa = None
 
-
-def get_fa(device: str = "cuda"):
-    """获取FaceAlignment实例"""
-    global _fa
-    if _fa is None:
-        print(f"load face_alignment model")
-        _fa = face_alignment.FaceAlignment(
-            face_alignment.LandmarksType.TWO_HALF_D, device=device, face_detector='blazeface')
-    return _fa
+# def get_fa(device: str = "cuda"):
+#     """获取FaceAlignment实例"""
+#     global _fa
+#     if _fa is None:
+#         print(f"load face_alignment model")
+#         _fa = face_alignment.FaceAlignment(
+#             face_alignment.LandmarksType.TWO_HALF_D, device=device, face_detector='blazeface')
+#     return _fa
 
 
 if __name__ == '__main__':
+    # 命令行参数
     parser = argparse.ArgumentParser(description='Inference code to lip-sync videos in the wild using Wav2Lip models')
 
     parser.add_argument('--checkpoint_path', type=str,
@@ -353,6 +357,10 @@ if __name__ == '__main__':
 
     parser.add_argument('--nosmooth', default=False, action='store_true',
                         help='Prevent smoothing face detections over a short temporal window')
+    parser.add_argument('--face_landmarks_detector_path', default='weights/face_landmarker_v2_with_blendshapes.task',
+                        type=str, help='Path to face landmarks detector')
+    parser.add_argument('--with_face_mask', action='store_true',
+                        help='Blend output into original frame using a face mask rather than directly blending the face box. This prevents a lower resolution square artifact around lower face')
 
     args = parser.parse_args()
     # args.img_size = 96
@@ -363,15 +371,27 @@ if __name__ == '__main__':
 
     if os.path.isfile(args.face) and args.face.split('.')[1] in ['jpg', 'png', 'jpeg']:
         args.static = True
-
+    # 推理设备
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print('Using {} for inference.'.format(device))
-
+    # 推理模型加载
     model = load_model(args.checkpoint_path, device)
     print("Model loaded")
-    main(model=model, face=args.face, fps=args.fps, resize_factor=args.resize_factor, rotate=args.rotate,
-         audio_path=args.audio,
-         wav2lip_batch_size=args.wav2lip_batch_size, crop=args.crop, outfile=args.outfile,
-         fa=get_fa(device), box=args.box, static=args.static, face_det_batch_size=args.face_det_batch_size,
-         pads=args.pads, nosmooth=args.nosmooth, img_size=args.img_size,
-         device=device, mel_step_size=16)
+    # 人脸遮罩检测器
+    BaseOptions = mp.tasks.BaseOptions
+    FaceLandmarker = mp.tasks.vision.FaceLandmarker
+    FaceLandmarkerOptions = mp.tasks.vision.FaceLandmarkerOptions
+    VisionRunningMode = mp.tasks.vision.RunningMode
+
+    options = FaceLandmarkerOptions(
+        base_options=BaseOptions(model_asset_path='weights/face_landmarker_v2_with_blendshapes.task'),
+        running_mode=VisionRunningMode.IMAGE)
+    with FaceLandmarker.create_from_options(options) as face_landmarks_detector:
+        # 推理主过程
+        main(model=model, face=args.face, fps=args.fps, resize_factor=args.resize_factor, rotate=args.rotate,
+             audio_path=args.audio,
+             wav2lip_batch_size=args.wav2lip_batch_size, crop=args.crop, outfile=args.outfile,
+             box=args.box, static=args.static, face_det_batch_size=args.face_det_batch_size,
+             pads=args.pads, nosmooth=args.nosmooth, img_size=args.img_size,
+             device=device, mel_step_size=16, face_landmarks_detector=face_landmarks_detector,
+             with_face_mask=args.with_face_mask)
