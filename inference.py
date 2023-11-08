@@ -261,6 +261,9 @@ def main(face: str, audio_path: str, model: Wav2Lip,
         frame_h, frame_w = full_frames[0].shape[:-1]
         tmp_video = f"/dev/shm/{uuid.uuid4()}.avi"
         out = cv2.VideoWriter(tmp_video, cv2.VideoWriter_fourcc(*'DIVX'), fps, (frame_w, frame_h))
+
+        kernel_size = 21  # 高斯核的大小
+        sigma = 0  # 标准差，如果为0，则函数会根据核大小自动选择
         for i, (img_batch, mel_batch, frames, coords) in enumerate(tqdm(gen,
                                                                         total=int(
                                                                             np.ceil(
@@ -278,7 +281,11 @@ def main(face: str, audio_path: str, model: Wav2Lip,
                 p = cv2.resize(p.astype(np.uint8), (x2 - x1, y2 - y1))
                 if face_landmarks_detector:
                     mask = face_mask_from_image(p, face_landmarks_detector)
-                    f[y1:y2, x1:x2] = f[y1:y2, x1:x2] * (1 - mask[..., None]) + p * mask[..., None]
+                    blur_mask = cv2.GaussianBlur(mask.astype(float), (kernel_size, kernel_size), sigma)
+                    blur_mask = blur_mask / blur_mask.max()  # 归一化
+                    # 应用渐变权重矩阵
+                    # 这里的...代表所有的颜色通道
+                    f[y1:y2, x1:x2] = f[y1:y2, x1:x2] * (1 - blur_mask[..., None]) + p * blur_mask[..., None]
                 else:
                     f[y1:y2, x1:x2] = p
                 out.write(f)
