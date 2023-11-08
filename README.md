@@ -2,7 +2,7 @@
 
 ## test environment
 
-Ubuntu22.04 Python3.8
+Ubuntu22.04 Python3.10.13
 
 The original repo: https://github.com/Rudrabha/Wav2Lip
 Some Features I will implement here
