@@ -186,6 +186,17 @@ def main(face: str, audio_path: str, model: Wav2Lip,
          nosmooth: bool = False, img_size: int = 288,
          device: str = "cuda", mel_step_size: int = 16,
          face_landmarks_detector=None):
+    # 自动获取人脸遮罩点检测器
+    if face_landmarks_detector is None and os.path.exists(
+            os.path.join(os.path.dirname(__file__), "weights/face_landmarker_v2_with_blendshapes.task")):
+        face_landmarks_detector = vision.FaceLandmarker.create_from_options(
+            vision.FaceLandmarkerOptions(
+                base_options=python.BaseOptions(model_asset_path=os.path.join(os.path.dirname(__file__),
+                                                                              "weights/face_landmarker_v2_with_blendshapes.task")),
+                output_face_blendshapes=True,
+                output_facial_transformation_matrixes=True,
+                num_faces=1))
+
     tmp_video = ''
     tmp_audio = ''
     try:
@@ -299,6 +310,9 @@ def main(face: str, audio_path: str, model: Wav2Lip,
             os.remove(tmp_audio)
         if os.path.exists(tmp_video):
             os.remove(tmp_video)
+        # 关闭人脸遮罩检测器
+        if face_landmarks_detector is None:
+            face_landmarks_detector.close()
         # 清理显存
         torch.cuda.empty_cache()
 
