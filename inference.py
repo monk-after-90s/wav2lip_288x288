@@ -311,7 +311,7 @@ def main(face: str, audio_path: str, model: Wav2Lip,
         if os.path.exists(tmp_video):
             os.remove(tmp_video)
         # 关闭人脸遮罩检测器
-        if face_landmarks_detector is None:
+        if face_landmarks_detector is not None:
             face_landmarks_detector.close()
         # 清理显存
         torch.cuda.empty_cache()
