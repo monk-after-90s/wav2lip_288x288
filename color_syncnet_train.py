@@ -201,7 +201,8 @@ def train(device, model, train_data_loader, test_data_loader, optimizer,
                     eval_loss = eval_model(test_data_loader, global_step, device, model, checkpoint_dir)
 
             avg_loss = running_loss / (step + 1)
-            prog_bar.set_description('Running loss: {}, evaluation loss: {}'.format(avg_loss, eval_loss))
+            prog_bar.set_description(
+                'global_step: {}, Running loss: {}, Evaluation loss: {}'.format(global_step, avg_loss, eval_loss))
             # loss不达标
             if args.target_loss and eval_loss > args.target_loss:
                 is_above_target_loss = True
