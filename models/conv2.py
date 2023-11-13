@@ -2,14 +2,15 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
+
 class Conv2d(nn.Module):
     def __init__(self, cin, cout, kernel_size, stride, padding, residual=False, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.conv_block = nn.Sequential(
-                            nn.Conv2d(cin, cout, kernel_size, stride, padding),
-                            nn.BatchNorm2d(cout)
-                            )
-        # self.act = nn.PReLU()
+            nn.Conv2d(cin, cout, kernel_size, stride, padding),
+            nn.BatchNorm2d(cout)
+        )
+        # self.act = nn.PReLU() todo 据说用linux就可以用这个激活函数
         self.act = nn.ReLU()
         self.residual = residual
 
@@ -19,25 +20,27 @@ class Conv2d(nn.Module):
             out += x
         return self.act(out)
 
+
 class nonorm_Conv2d(nn.Module):
     def __init__(self, cin, cout, kernel_size, stride, padding, residual=False, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.conv_block = nn.Sequential(
-                            nn.Conv2d(cin, cout, kernel_size, stride, padding),
-                            )
+            nn.Conv2d(cin, cout, kernel_size, stride, padding),
+        )
         self.act = nn.LeakyReLU(negative_slope=0.01)
 
     def forward(self, x):
         out = self.conv_block(x)
         return self.act(out)
 
+
 class Conv2dTranspose(nn.Module):
     def __init__(self, cin, cout, kernel_size, stride, padding, output_padding=0, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.conv_block = nn.Sequential(
-                            nn.ConvTranspose2d(cin, cout, kernel_size, stride, padding, output_padding),
-                            nn.BatchNorm2d(cout)
-                            )
+            nn.ConvTranspose2d(cin, cout, kernel_size, stride, padding, output_padding),
+            nn.BatchNorm2d(cout)
+        )
         self.act = nn.PReLU()
 
     def forward(self, x):
