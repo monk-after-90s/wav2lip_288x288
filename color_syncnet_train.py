@@ -163,6 +163,8 @@ def train(device, model, train_data_loader, test_data_loader, optimizer,
 
     global global_step, global_epoch
 
+    eval_loss = 0
+    is_eval_loss_inited = False
     while global_epoch < nepochs:
         running_loss = 0.
         prog_bar = tqdm(enumerate(train_data_loader))
@@ -193,14 +195,15 @@ def train(device, model, train_data_loader, test_data_loader, optimizer,
                 if to_exit:
                     return
 
-            if global_step % hparams.syncnet_eval_interval == 0:
+            if global_step % hparams.syncnet_eval_interval == 0 or not is_eval_loss_inited:
+                is_eval_loss_inited = True
                 with torch.no_grad():
-                    eval_model(test_data_loader, global_step, device, model, checkpoint_dir)
+                    eval_loss = eval_model(test_data_loader, global_step, device, model, checkpoint_dir)
 
             avg_loss = running_loss / (step + 1)
-            prog_bar.set_description('Loss: {}'.format(avg_loss))
-            # 有任何loss不达标
-            if args.target_loss and avg_loss > args.target_loss:
+            prog_bar.set_description('Running loss: {}, evaluation loss: {}'.format(avg_loss, eval_loss))
+            # loss不达标
+            if args.target_loss and eval_loss > args.target_loss:
                 is_above_target_loss = True
 
         if not is_above_target_loss:
@@ -234,9 +237,8 @@ def eval_model(test_data_loader, global_step, device, model, checkpoint_dir):
             if step > eval_steps: break
 
         averaged_loss = sum(losses) / len(losses)
-        print(averaged_loss)
-
-        return
+        # print(averaged_loss)
+        return averaged_loss
 
 
 def save_checkpoint(model, optimizer, step, checkpoint_dir, epoch):
