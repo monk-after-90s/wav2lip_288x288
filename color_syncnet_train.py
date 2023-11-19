@@ -16,11 +16,11 @@ from hparams import hparams, get_image_list
 
 parser = argparse.ArgumentParser(description='Code to train the expert lip-sync discriminator')
 
-parser.add_argument("--data_root", help="Root folder of the preprocessed LRS2 dataset", required=True)
+parser.add_argument("--data_root", help="Root folder of the preprocessed dataset", required=True)
 
 parser.add_argument("--filelists_root",
                     help="Root folder of videos sampling results: test.txt, train.txt, val.txt",
-                    default="filelists",
+                    default="",
                     type=str)
 
 parser.add_argument('--checkpoint_dir', help='Save checkpoints to this directory', required=True, type=str)
@@ -28,6 +28,9 @@ parser.add_argument('--checkpoint_path', help='Resumed from this checkpoint', de
 parser.add_argument('--target_loss', help='Which loss value to trigger training stopped', default=0.249, type=float)
 
 args = parser.parse_args()
+
+if not args.filelists_root:
+    args.filelists_root = os.path.join(args.data_root, "filelists")
 
 global_step = 0
 global_epoch = 0
